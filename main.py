@@ -26,8 +26,8 @@ class Processor():
 	def load_data(self):
 		self.data_loader = dict()
 		if cfg.phase == 'train':
-			self.data_loader['train'] = torch.utils.data.DataLoader(
-				dataset=TrainDataset(cfg.train_feature_dir, 
+			if cfg.dataset == 'Anet':
+				current_dataset = TrainAnetDataset(cfg.train_feature_dir,
 								  cfg.train_csv_path,
 								  cfg.visual_dim,
 								  cfg.sentence_embed_dim,
@@ -35,7 +35,19 @@ class Processor():
 								  cfg.nIoU,
 								  cfg.context_num,
                  				  cfg.context_size,
-								),
+								)
+			else:
+				current_dataset = TrainDataset(cfg.train_feature_dir,
+											   cfg.train_csv_path,
+											   cfg.visual_dim,
+											   cfg.sentence_embed_dim,
+											   cfg.IoU,
+											   cfg.nIoU,
+											   cfg.context_num,
+											   cfg.context_size,
+											   )
+			self.data_loader['train'] = torch.utils.data.DataLoader(
+				dataset=current_dataset,
 				batch_size=cfg.batch_size,
 				shuffle=True,
 				num_workers=cfg.num_worker)

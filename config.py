@@ -5,7 +5,7 @@ class CONFIG(object):
         super(CONFIG, self).__init__()
 
         self.phase = 'train'
-
+        self.dataset = 'Anet' #'TACoS'
         self.seed = 2019
         self.device = [0] 
 
@@ -17,8 +17,13 @@ class CONFIG(object):
         self.num_worker = 8
         self.test_csv_path = "./exp_data/TACoS/test_clip-sentvec.pkl"
         self.train_csv_path = "./exp_data/TACoS/train_clip-sentvec.pkl"
-        self.test_feature_dir="../TACoS/Interval128_256_overlap0.8_c3d_fc6/"
-        self.train_feature_dir = "../TACoS/Interval64_128_256_512_overlap0.8_c3d_fc6/"
+        self.test_csv_path ="/home/yy/Retrieval_FCOS/data/charades_sta_test.txt"
+        self.test_feature_dir="/home/yy/Retrieval_FCOS/data/charades_sta_test.txt"
+        self.train_feature_dir = "/home/yy/Retrieval_FCOS/data/Charades_feature_rgb_pkl"
+        # self.test_csv_path = "/home/yy/Retrieval_FCOS/data/test.json"
+        # self.train_csv_path = "/home/yy/Retrieval_FCOS/data/train.json"
+        # self.val_csv_path = "/home/yy/Retrieval_FCOS/data/val.json"
+        # self.train_feature_dir = "/home/yy/Retrieval_FCOS/data/sub_activitynet_v1-3.c3d.hdf5"
 
         self.movie_length_info_path = "./video_allframes_info.pkl"
         
