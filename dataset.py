@@ -52,7 +52,7 @@ def calc_nIoL(base, sliding_clip):
     return nIoL
 
 
-class TrainAnetDataset(torch.utils.data.Dataset):
+class AnetDataset(torch.utils.data.Dataset):
     def __init__(self,
                  sliding_dir,
                  it_path,
@@ -101,7 +101,7 @@ class TrainAnetDataset(torch.utils.data.Dataset):
         self.features_h5py = tables.open_file('../data/sub_activitynet_v1-3.c3d.hdf5', 'r')
         self._process_video()
 
-        print('The number of {} dataset Activitynet samples is {}'.format(mode, len(self.sampels)))
+        print('The number of {} dataset Activitynet samples is {}'.format(self.mode, len(self.sampels)))
 
     def load_data(self):
         '''
@@ -450,6 +450,277 @@ class TrainDataset(torch.utils.data.Dataset):
             left_context_feats[k] = left_context_feat
             right_context_feats[k] = right_context_feat
         return np.mean(left_context_feats, axis=0), np.mean(right_context_feats, axis=0)
+
+
+class TestingAnetDataSet(object):
+    def __init__(self, img_dir, csv_path, batch_size):
+        # il_path: image_label_file path
+        # self.index_in_epoch = 0
+        # self.epochs_completed = 0
+
+        # self.load_data()
+        f = open('../data/vocab.json')
+        self.vocab = json.loads(f.read())[0]
+        self.mode = "train"
+        self.window_size = 768  # config.window_size
+
+        self.mode = 'Test'
+        if self.mode == 'Train':
+            self.window_step = 128  # config.window_step
+        else:
+            self.window_step = 256  # config.inference_window_step
+
+        self.feature_dim = 500  # config.feature_dim
+        self.sampels = []
+
+        if self.mode == 'Train':
+            self.data = read_json('../data/train.json')
+        elif self.mode == 'Val':
+            self.data = read_json('../data/val.json')
+
+        elif self.mode == 'Valtrain':
+            self.data = read_json('../data/val.json')
+
+        elif self.mode == 'Test':
+            self.data = read_json('../data/test.json')
+
+        self.features_h5py = tables.open_file('../data/sub_activitynet_v1-3.c3d.hdf5', 'r')
+        self._process_video()
+
+        print('The number of {} dataset Activitynet samples is {}'.format(mode, len(self.sampels)))
+
+
+        self.batch_size = batch_size
+        self.image_dir = img_dir
+        print("Reading testing data list from " + csv_path)
+        self.semantic_size = 4800
+        csv = pickle.load(open(csv_path, 'rb'), encoding='iso-8859-1')
+        self.clip_sentence_pairs = []
+        for l in csv:
+            clip_name = l[0]
+            sent_vecs = l[1]
+            for sent_vec in sent_vecs:
+                self.clip_sentence_pairs.append((clip_name, sent_vec))
+        print(str(len(self.clip_sentence_pairs)) + " pairs are readed")
+        movie_names_set = set()
+        self.movie_clip_names = {}
+        for k in range(len(self.clip_sentence_pairs)):
+            clip_name = self.clip_sentence_pairs[k][0]
+            movie_name = clip_name.split("_")[0]
+            if not movie_name in movie_names_set:
+                movie_names_set.add(movie_name)
+                self.movie_clip_names[movie_name] = []
+            self.movie_clip_names[movie_name].append(k)
+        self.movie_names = list(movie_names_set)
+
+        self.clip_num_per_movie_max = 0
+        for movie_name in self.movie_clip_names:
+            if len(self.movie_clip_names[movie_name]) > self.clip_num_per_movie_max: self.clip_num_per_movie_max = len(
+                self.movie_clip_names[movie_name])
+        print("Max number of clips in a movie is " + str(self.clip_num_per_movie_max))
+
+        self.sliding_clip_path = img_dir
+        sliding_clips_tmp = os.listdir(self.sliding_clip_path)
+        self.sliding_clip_names = []
+        for clip_name in sliding_clips_tmp:
+            if clip_name.split(".")[2] == "npy":
+                movie_name = clip_name.split("_")[0]
+                if movie_name in self.movie_clip_names:
+                    self.sliding_clip_names.append(clip_name.split(".")[0] + "." + clip_name.split(".")[1])
+        self.num_samples = len(self.clip_sentence_pairs)
+        print("sliding clips number: " + str(len(self.sliding_clip_names)))
+        assert self.batch_size <= self.num_samples
+
+    def _process_video(self):  # 6*feature
+        count = 0
+        for video_name in self.data.keys():
+            count += 1
+            if count > 100 and self.mode == 'Val':
+                break
+            if count > 30 and self.mode == 'Test':
+                break
+            d = self.data[video_name]
+            sentences = d['sentences']
+            # data = torch.Tensor(self.features[video_name])
+            data = torch.Tensor(self.features_h5py.root[video_name]['c3d_features'].read())
+            times = d['timestamps']
+            length = data.shape[0]
+            ratio = float(length) / float(d['duration'])  # ~3.7,3.8
+            length = int(d['duration'] * ratio)
+
+            pair = []
+            for sentence, time in zip(sentences, times):
+                word_indexes = []
+                for word in sentence.split(' '):
+                    idx = self.vocab.get(word)
+
+                    if idx is not None:
+                        word_indexes.append(idx)
+                    else:
+                        word_indexes.append(0)
+                sent = np.array(word_indexes, dtype=np.long)
+                gt_start = float(time[0])
+                gt_end = float(time[1] + 1.)
+                if gt_start > gt_end:
+                    gt_start, gt_end = gt_end, gt_start
+                gt = [np.round(gt_start * ratio), np.round(gt_end * ratio)]
+                pair.append([sent, gt])
+
+            window_size, stride = self.window_size, self.window_step
+            n_window = math.ceil((length + stride - window_size) / stride)
+            windows_start = [i * stride for i in range(int(n_window))]
+            if length < window_size:
+                windows_start = [0]
+
+            elif length - windows_start[-1] - window_size > 0:
+                windows_start.append(length - window_size)
+
+            for start in windows_start:
+                # tmp_data = _get_feature(self.feature_path, video_name, start, start+window_size)
+                window = min(window_size, length - start)
+                pad_dim = window_size + start - length
+                tmp_data = data[start:start + window, :]  # [window_size, feature_dim]
+                if pad_dim > 0:
+                    pad = torch.zeros(pad_dim, self.feature_dim)
+                    tmp_data = torch.cat((tmp_data, pad), 0)
+
+                xmin = start
+                xmax = start + window_size
+
+                for idx in range(len(pair)):
+                    sent = pair[idx][0]
+                    round_gt_start = pair[idx][1][0]
+                    round_gt_end = pair[idx][1][1]
+
+                    tmp_ioa = ioa_with_anchors(round_gt_start, round_gt_end, xmin, xmax)
+
+                    # 有gt的片段被送去训练 test时也只送有交集的框 todo fix 另外测试无的部分
+                    if tmp_ioa > 0:
+                        # gt bbox info
+                        corrected_start = max(round_gt_start, xmin) - xmin
+                        corrected_end = min(round_gt_end, xmax) - xmin
+                        # [0, window_size]
+                        corrected_start = max(corrected_start, 0.0)
+                        corrected_start = min(corrected_start, self.window_size)
+                        corrected_end = max(corrected_end, 0.0)
+                        corrected_end = min(corrected_end, self.window_size)
+
+                        tmp_gt_bbox = [float(corrected_start), float(corrected_end)]
+                        # tmp_gt_bbox = [float(corrected_start) / self.window_size,
+                        #            float(corrected_end) / self.window_size]
+                        # elif tmp_ioa <= 0:
+                        #     tmp_gt_bbox = [0., 0.]
+                        #     tmp_ioa = 0.
+
+                        tmp_results = [tmp_data, np.array(tmp_gt_bbox),
+                                       np.array(sent), np.array([round_gt_start, round_gt_end])]
+
+                        if self.mode != 'Train':
+                            # print(xmin, tmp_gt_bbox, round_gt_start, round_gt_end)
+                            tmp_results.append(video_name)
+                            tmp_results.append(sentences[idx])
+                            tmp_results.append(xmin)
+                            tmp_results.append(ratio)
+                        self.sampels.append(tmp_results)
+
+        self.features_h5py.close()
+
+    def get_clip_sample(self, sample_num, movie_name, clip_name):
+        length = len(os.listdir(self.image_dir + movie_name + "/" + clip_name))
+        sample_step = 1.0 * length / sample_num
+        sample_pos = np.floor(sample_step * np.array(range(sample_num)))
+        sample_pos_str = []
+        img_names = os.listdir(self.image_dir + movie_name + "/" + clip_name)
+        # sort is very important! to get a correct sequence order
+        img_names.sort()
+        # print img_names
+        for pos in sample_pos:
+            sample_pos_str.append(self.image_dir + movie_name + "/" + clip_name + "/" + img_names[int(pos)])
+        return sample_pos_str
+
+    def get_context_window(self, clip_name, win_length):
+        movie_name = clip_name.split("_")[0]
+        start = int(clip_name.split("_")[1])
+        end = int(clip_name.split("_")[2].split(".")[0])
+        clip_length = 128  # end-start
+        left_context_feats = np.zeros([win_length, 4096], dtype=np.float32)
+        right_context_feats = np.zeros([win_length, 4096], dtype=np.float32)
+        last_left_feat = np.load(self.sliding_clip_path + clip_name)
+        last_right_feat = np.load(self.sliding_clip_path + clip_name)
+        for k in range(win_length):
+            left_context_start = start - clip_length * (k + 1)
+            left_context_end = start - clip_length * k
+            right_context_start = end + clip_length * k
+            right_context_end = end + clip_length * (k + 1)
+            left_context_name = movie_name + "_" + str(left_context_start) + "_" + str(left_context_end) + ".npy"
+            right_context_name = movie_name + "_" + str(right_context_start) + "_" + str(right_context_end) + ".npy"
+            if os.path.exists(self.sliding_clip_path + left_context_name):
+                left_context_feat = np.load(self.sliding_clip_path + left_context_name)
+                last_left_feat = left_context_feat
+            else:
+                left_context_feat = last_left_feat
+            if os.path.exists(self.sliding_clip_path + right_context_name):
+                right_context_feat = np.load(self.sliding_clip_path + right_context_name)
+                last_right_feat = right_context_feat
+            else:
+                right_context_feat = last_right_feat
+            left_context_feats[k] = left_context_feat
+            right_context_feats[k] = right_context_feat
+
+        return np.mean(left_context_feats, axis=0), np.mean(right_context_feats, axis=0)
+
+    def load_movie(self, movie_name):
+        movie_clip_sentences = []
+        for k in range(len(self.clip_names)):
+            if movie_name in self.clip_names[k]:
+                movie_clip_sentences.append((self.clip_names[k], self.sent_vecs[k][:2400], self.sentences[k]))
+
+        movie_clip_imgs = []
+        for k in range(len(self.movie_frames[movie_name])):
+            # print str(k)+"/"+str(len(self.movie_frames[movie_name]))
+            if os.path.isfile(self.movie_frames[movie_name][k][1]) and os.path.getsize(
+                    self.movie_frames[movie_name][k][1]) != 0:
+                img = load_image(self.movie_frames[movie_name][k][1])
+                movie_clip_imgs.append((self.movie_frames[movie_name][k][0], img))
+
+        return movie_clip_imgs, movie_clip_sentences
+
+    def load_movie_byclip(self, movie_name, sample_num):
+        movie_clip_sentences = []
+        movie_clip_featmap = []
+        clip_set = set()
+        for k in range(len(self.clip_sentence_pairs)):
+            if movie_name in self.clip_sentence_pairs[k][0]:
+                movie_clip_sentences.append(
+                    (self.clip_sentence_pairs[k][0], self.clip_sentence_pairs[k][1][:self.semantic_size]))
+
+                if not self.clip_sentence_pairs[k][0] in clip_set:
+                    clip_set.add(self.clip_sentence_pairs[k][0])
+                    # print str(k)+"/"+str(len(self.movie_clip_names[movie_name]))
+                    visual_feature_path = self.image_dir + self.clip_sentence_pairs[k][0] + ".npy"
+                    feature_data = np.load(visual_feature_path)
+                    movie_clip_featmap.append((self.clip_sentence_pairs[k][0], feature_data))
+        return movie_clip_featmap, movie_clip_sentences
+
+    def load_movie_slidingclip(self, movie_name, sample_num):
+        movie_clip_sentences = []
+        movie_clip_featmap = []
+        clip_set = set()
+        for k in range(len(self.clip_sentence_pairs)):
+            if movie_name in self.clip_sentence_pairs[k][0]:
+                movie_clip_sentences.append(
+                    (self.clip_sentence_pairs[k][0], self.clip_sentence_pairs[k][1][:self.semantic_size]))
+        for k in range(len(self.sliding_clip_names)):
+            if movie_name in self.sliding_clip_names[k]:
+                # print str(k)+"/"+str(len(self.movie_clip_names[movie_name]))
+                visual_feature_path = self.sliding_clip_path + self.sliding_clip_names[k] + ".npy"
+                # context_feat=self.get_context(self.sliding_clip_names[k]+".npy")
+                left_context_feat, right_context_feat = self.get_context_window(self.sliding_clip_names[k] + ".npy", 1)
+                feature_data = np.load(visual_feature_path)
+                # comb_feat=np.hstack((context_feat,feature_data))
+                comb_feat = np.hstack((left_context_feat, feature_data, right_context_feat))
+                movie_clip_featmap.append((self.sliding_clip_names[k], comb_feat))
+        return movie_clip_featmap, movie_clip_sentences
 
 
 class TestingDataSet(object):
