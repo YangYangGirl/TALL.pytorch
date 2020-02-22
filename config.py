@@ -10,7 +10,7 @@ class CONFIG(object):
         self.device = [0] 
 
         self.max_epoch = 20
-        self.batch_size = 56 #yy
+        self.batch_size = 1#56
         self.test_batch_size = 1
 
         # Dataset setting

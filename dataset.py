@@ -178,11 +178,11 @@ class AnetDataset(torch.utils.data.Dataset):
         # p_offset = self.clip_sentence_pairs_iou[index][3]
         # l_offset = self.clip_sentence_pairs_iou[index][4]
         # offset = np.array([p_offset, l_offset], dtype=np.float32)
-
+        bs = list(self.sampels[index][0].size())[0]
         data_torch = {
-            'vis': torch.from_numpy(self.sampels[index][0]),
-            'sent': torch.from_numpy(self.sampels[index][2]),
-            'offset': torch.from_numpy(self.sampels[index][1]),
+            'vis': self.sampels[index][0].reshape(bs, -1),
+            'sent': self.sampels[index][2],
+            'offset': self.sampels[index][1],
         }
         return data_torch
 
@@ -452,7 +452,7 @@ class TrainDataset(torch.utils.data.Dataset):
         return np.mean(left_context_feats, axis=0), np.mean(right_context_feats, axis=0)
 
 
-class TestingAnetDataSet(object):
+class TestingAnetDataset(object):
     def __init__(self, img_dir, csv_path, batch_size):
         # il_path: image_label_file path
         # self.index_in_epoch = 0
@@ -487,49 +487,49 @@ class TestingAnetDataSet(object):
         self.features_h5py = tables.open_file('../data/sub_activitynet_v1-3.c3d.hdf5', 'r')
         self._process_video()
 
-        print('The number of {} dataset Activitynet samples is {}'.format(mode, len(self.sampels)))
+        print('The number of {} dataset Activitynet samples is {}'.format(self.mode, len(self.sampels)))
 
 
         self.batch_size = batch_size
-        self.image_dir = img_dir
-        print("Reading testing data list from " + csv_path)
-        self.semantic_size = 4800
-        csv = pickle.load(open(csv_path, 'rb'), encoding='iso-8859-1')
-        self.clip_sentence_pairs = []
-        for l in csv:
-            clip_name = l[0]
-            sent_vecs = l[1]
-            for sent_vec in sent_vecs:
-                self.clip_sentence_pairs.append((clip_name, sent_vec))
-        print(str(len(self.clip_sentence_pairs)) + " pairs are readed")
-        movie_names_set = set()
-        self.movie_clip_names = {}
-        for k in range(len(self.clip_sentence_pairs)):
-            clip_name = self.clip_sentence_pairs[k][0]
-            movie_name = clip_name.split("_")[0]
-            if not movie_name in movie_names_set:
-                movie_names_set.add(movie_name)
-                self.movie_clip_names[movie_name] = []
-            self.movie_clip_names[movie_name].append(k)
-        self.movie_names = list(movie_names_set)
-
-        self.clip_num_per_movie_max = 0
-        for movie_name in self.movie_clip_names:
-            if len(self.movie_clip_names[movie_name]) > self.clip_num_per_movie_max: self.clip_num_per_movie_max = len(
-                self.movie_clip_names[movie_name])
-        print("Max number of clips in a movie is " + str(self.clip_num_per_movie_max))
-
-        self.sliding_clip_path = img_dir
-        sliding_clips_tmp = os.listdir(self.sliding_clip_path)
-        self.sliding_clip_names = []
-        for clip_name in sliding_clips_tmp:
-            if clip_name.split(".")[2] == "npy":
-                movie_name = clip_name.split("_")[0]
-                if movie_name in self.movie_clip_names:
-                    self.sliding_clip_names.append(clip_name.split(".")[0] + "." + clip_name.split(".")[1])
-        self.num_samples = len(self.clip_sentence_pairs)
-        print("sliding clips number: " + str(len(self.sliding_clip_names)))
-        assert self.batch_size <= self.num_samples
+        # self.image_dir = img_dir
+        # print("Reading testing data list from " + csv_path)
+        # self.semantic_size = 4800
+        # csv = pickle.load(open(csv_path, 'rb'), encoding='iso-8859-1')
+        # self.clip_sentence_pairs = []
+        # for l in csv:
+        #     clip_name = l[0]
+        #     sent_vecs = l[1]
+        #     for sent_vec in sent_vecs:
+        #         self.clip_sentence_pairs.append((clip_name, sent_vec))
+        # print(str(len(self.clip_sentence_pairs)) + " pairs are readed")
+        # movie_names_set = set()
+        # self.movie_clip_names = {}
+        # for k in range(len(self.clip_sentence_pairs)):
+        #     clip_name = self.clip_sentence_pairs[k][0]
+        #     movie_name = clip_name.split("_")[0]
+        #     if not movie_name in movie_names_set:
+        #         movie_names_set.add(movie_name)
+        #         self.movie_clip_names[movie_name] = []
+        #     self.movie_clip_names[movie_name].append(k)
+        # self.movie_names = list(movie_names_set)
+        #
+        # self.clip_num_per_movie_max = 0
+        # for movie_name in self.movie_clip_names:
+        #     if len(self.movie_clip_names[movie_name]) > self.clip_num_per_movie_max: self.clip_num_per_movie_max = len(
+        #         self.movie_clip_names[movie_name])
+        # print("Max number of clips in a movie is " + str(self.clip_num_per_movie_max))
+        #
+        # self.sliding_clip_path = img_dir
+        # sliding_clips_tmp = os.listdir(self.sliding_clip_path)
+        # self.sliding_clip_names = []
+        # for clip_name in sliding_clips_tmp:
+        #     if clip_name.split(".")[2] == "npy":
+        #         movie_name = clip_name.split("_")[0]
+        #         if movie_name in self.movie_clip_names:
+        #             self.sliding_clip_names.append(clip_name.split(".")[0] + "." + clip_name.split(".")[1])
+        # self.num_samples = len(self.clip_sentence_pairs)
+        # print("sliding clips number: " + str(len(self.sliding_clip_names)))
+        # assert self.batch_size <= self.num_samples
 
     def _process_video(self):  # 6*feature
         count = 0

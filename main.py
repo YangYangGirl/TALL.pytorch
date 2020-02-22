@@ -106,7 +106,10 @@ class Processor():
 			for step, data_torch in enumerate(self.data_loader['train']):
 				self.model.train()
 				self.record_time()
-
+				print(data_torch['vis'].shape)
+				print(data_torch['sent'].shape)
+				print(data_torch['vis'])
+				print(data_torch['sent'])
 				# forward
 				output = self.model(data_torch['vis'], data_torch['sent'])
 				loss = self.loss(output, data_torch['offset'])
