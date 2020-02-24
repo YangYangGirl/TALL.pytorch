@@ -16,6 +16,93 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import datasets, transforms
 
+import torch
+import torch.nn as nn
+from torch.autograd import Variable
+import numpy as np
+
+class WordEmbedding(nn.Module):
+    """Word Embedding
+    The ntoken-th dim is used for padding_idx, which agrees *implicitly*
+    with the definition in Dictionary.
+    """
+    def __init__(self, ntoken, emb_dim, dropout=0):
+        super(WordEmbedding, self).__init__()
+        self.emb = nn.Embedding(ntoken, emb_dim, padding_idx=0)
+        self.dropout = nn.Dropout(dropout)
+        self.ntoken = ntoken
+        self.emb_dim = emb_dim
+
+    def init_embedding(self, np_file):
+        weight_init = torch.from_numpy(np.load(np_file))
+        assert weight_init.shape == (self.ntoken, self.emb_dim)
+        self.emb.weight.data[:self.ntoken] = weight_init
+        #self.emb.weight.data = weight_init
+
+    def forward(self, x):
+        emb = self.emb(x)
+        emb = self.dropout(emb)
+        return emb
+
+
+class SentenceEmbedding(nn.Module):
+    def __init__(self, in_dim, num_hid, nlayers, bidirect, dropout, rnn_type='GRU'):
+        """Module for question embedding
+        """
+        super(SentenceEmbedding, self).__init__()
+        assert rnn_type == 'LSTM' or rnn_type == 'GRU'
+        rnn_cls = nn.LSTM if rnn_type == 'LSTM' else nn.GRU
+
+        self.rnn = rnn_cls(
+            in_dim, num_hid, nlayers,
+            bidirectional=bidirect,
+            dropout=dropout,
+            batch_first=True)
+
+        self.in_dim = in_dim
+        self.num_hid = num_hid
+        self.nlayers = nlayers
+        self.rnn_type = rnn_type
+        self.ndirections = 1 + int(bidirect)
+
+    def init_hidden(self, batch):
+        # just to get the type of tensor
+        weight = next(self.parameters()).data
+        hid_shape = (self.nlayers * self.ndirections, batch, self.num_hid)
+        if self.rnn_type == 'LSTM':
+            return (Variable(weight.new(*hid_shape).zero_()),
+                    Variable(weight.new(*hid_shape).zero_()))
+        else:
+            return Variable(weight.new(*hid_shape).zero_())
+
+    def forward(self, x):
+        # x: [batch, sequence, in_dim]
+        batch, seq_len, _ = x.shape
+        hidden = self.init_hidden(batch)
+        self.rnn.flatten_parameters()
+        output, hidden = self.rnn(x, hidden)
+
+        # if self.ndirections == 1:
+        #     return output
+        # forward_ = output[:, -1, :self.num_hid]
+        # index = [seq_len-1-i for i in range(seq_len)]
+        # backward = output[:, :, self.num_hid:][:,index,:]
+        # return torch.cat((forward_, backward), dim=2)   #N, seq_len, hid*2
+        if self.ndirections == 1:
+            return output[:, -1]
+
+        forward_ = output[:, -1, :self.num_hid]
+        backward = output[:, 0, self.num_hid:]
+        return torch.cat((forward_, backward), dim=1)
+
+    def forward_all(self, x):
+        # x: [batch, sequence, in_dim]
+        batch = x.size(0)
+        hidden = self.init_hidden(batch)
+        self.rnn.flatten_parameters()
+        output, hidden = self.rnn(x, hidden)
+        return output
+
 def ioa_with_anchors(anchors_min, anchors_max, box_min, box_max):
     """Compute intersection between score a box and the anchors.
     """
@@ -85,7 +172,7 @@ class AnetDataset(torch.utils.data.Dataset):
             self.window_step = 256#config.inference_window_step
 
         self.feature_dim = 500#config.feature_dim
-        self.sampels = []
+        self.samples = []
 
         if self.mode == 'Train':
             self.data = read_json('../data/train.json')
@@ -101,7 +188,7 @@ class AnetDataset(torch.utils.data.Dataset):
         self.features_h5py = tables.open_file('../data/sub_activitynet_v1-3.c3d.hdf5', 'r')
         self._process_video()
 
-        print('The number of {} dataset Activitynet samples is {}'.format(self.mode, len(self.sampels)))
+        print('The number of {} dataset Activitynet samples is {}'.format(self.mode, len(self.samples)))
 
     def load_data(self):
         '''
@@ -147,7 +234,6 @@ class AnetDataset(torch.utils.data.Dataset):
                         end = int(clip_name.split("_")[2].split(".")[0])
                         o_start = int(original_clip_name.split("_")[1]) 
                         o_end = int(original_clip_name.split("_")[2].split(".")[0])
-                        iou = calc_IoU((start, end), (o_start, o_end))#筛选出train sample
                         if iou > self.IoU:
                             nIoL = calc_nIoL((o_start, o_end), (start, end))
                             if nIoL < self.nIoU:
@@ -160,11 +246,16 @@ class AnetDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         #return self.num_samples_iou
-        return len(self.sampels)
+        return len(self.samples)
+
+
+    def sent_convert_to_vec(self, sent):
+        cfg.ntoken, cfg.word_dim
+
 
     def __getitem__(self, index):
 
-        s = self.sampels[index]
+        s = self.samples[index]
         
         
         # read context features
@@ -178,11 +269,13 @@ class AnetDataset(torch.utils.data.Dataset):
         # p_offset = self.clip_sentence_pairs_iou[index][3]
         # l_offset = self.clip_sentence_pairs_iou[index][4]
         # offset = np.array([p_offset, l_offset], dtype=np.float32)
-        bs = list(self.sampels[index][0].size())[0]
+        sent_raw = self.samples[index][2]
+
+        #bs = list(self.samples[index][0].size())[0]
         data_torch = {
-            'vis': self.sampels[index][0].reshape(bs, -1),
-            'sent': self.sampels[index][2],
-            'offset': self.sampels[index][1],
+            'vis': self.samples[index][0],#.reshape(bs, -1),
+            'sent': sent_raw,
+            'offset': self.samples[index][1],
         }
         return data_torch
 
@@ -223,7 +316,7 @@ class AnetDataset(torch.utils.data.Dataset):
 
     def _process_video(self):  # 6*feature
         count = 0
-        for video_name in self.data.keys():
+        for video_name in list(self.data.keys())[:100]:
             count += 1
             if count > 100 and self.mode == 'Val':
                 break
@@ -311,7 +404,7 @@ class AnetDataset(torch.utils.data.Dataset):
                             tmp_results.append(sentences[idx])
                             tmp_results.append(xmin)
                             tmp_results.append(ratio)
-                        self.sampels.append(tmp_results)
+                        self.samples.append(tmp_results)
 
         self.features_h5py.close()
 
@@ -471,7 +564,7 @@ class TestingAnetDataset(object):
             self.window_step = 256  # config.inference_window_step
 
         self.feature_dim = 500  # config.feature_dim
-        self.sampels = []
+        self.samples = []
 
         if self.mode == 'Train':
             self.data = read_json('../data/train.json')
@@ -487,7 +580,7 @@ class TestingAnetDataset(object):
         self.features_h5py = tables.open_file('../data/sub_activitynet_v1-3.c3d.hdf5', 'r')
         self._process_video()
 
-        print('The number of {} dataset Activitynet samples is {}'.format(self.mode, len(self.sampels)))
+        print('The number of {} dataset Activitynet samples is {}'.format(self.mode, len(self.samples)))
 
 
         self.batch_size = batch_size
@@ -615,13 +708,13 @@ class TestingAnetDataset(object):
                         tmp_results = [tmp_data, np.array(tmp_gt_bbox),
                                        np.array(sent), np.array([round_gt_start, round_gt_end])]
 
-                        if self.mode != 'Train':
+                        if self.mode != '':
                             # print(xmin, tmp_gt_bbox, round_gt_start, round_gt_end)
                             tmp_results.append(video_name)
                             tmp_results.append(sentences[idx])
                             tmp_results.append(xmin)
                             tmp_results.append(ratio)
-                        self.sampels.append(tmp_results)
+                        self.samples.append(tmp_results)
 
         self.features_h5py.close()
 

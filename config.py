@@ -14,7 +14,7 @@ class CONFIG(object):
         self.test_batch_size = 1
 
         # Dataset setting
-        self.num_worker = 8
+        self.num_worker = 1
         self.test_csv_path = "./exp_data/TACoS/test_clip-sentvec.pkl"
         self.train_csv_path = "./exp_data/TACoS/train_clip-sentvec.pkl"
         self.test_csv_path ="/home/yy/Retrieval_FCOS/data/charades_sta_test.txt"
@@ -23,7 +23,7 @@ class CONFIG(object):
         # self.test_csv_path = "/home/yy/Retrieval_FCOS/data/test.json"
         # self.train_csv_path = "/home/yy/Retrieval_FCOS/data/train.json"
         # self.val_csv_path = "/home/yy/Retrieval_FCOS/data/val.json"
-        # self.train_feature_dir = "/home/yy/Retrieval_FCOS/data/sub_activitynet_v1-3.c3d.hdf5"
+        # self.train_feature_dir = "/home/yy/Retrieval_FCOS/data/sub_activynet_v1-3.c3d.hdf5"
 
         self.movie_length_info_path = "./video_allframes_info.pkl"
         
@@ -31,8 +31,8 @@ class CONFIG(object):
         self.context_size = 128
 
         # Model setting
-        self.visual_dim = 4096 * 3
-        self.sentence_embed_dim = 4800
+        self.visual_dim = 768 * 500 #4096 * 3
+        self.sentence_embed_dim = 500#4800
         self.semantic_dim = 1024    # the size of visual and semantic comparison size
         self.middle_layer_dim = 1024
 
