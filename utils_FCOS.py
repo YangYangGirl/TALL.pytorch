@@ -1,7 +1,6 @@
 import os
 import torch
 import numpy as np
-import pandas as pd
 import operator
 from sklearn.metrics import average_precision_score
 from functools import partial
@@ -259,8 +258,8 @@ def get_bboxes(config,
                ):#rescale:是否再次缩放
         assert len(cls_scores) == len(bbox_preds)
         num_levels = len(cls_scores)
-
-        featmap_sizes = [featmap.size()[-1] for featmap in cls_scores]
+        #featmap_sizes = [featmap.shape()[-1] for featmap in cls_scores]
+        featmap_sizes = [1 for featmap in cls_scores]
         mlvl_points = criterion.get_points(featmap_sizes, bbox_preds[0].dtype,
                                       bbox_preds[0].device) 
         result_list = []

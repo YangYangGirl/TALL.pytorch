@@ -26,7 +26,7 @@ class FCOSLoss(nn.Module):
 				 num_classes,
 				 strides=(8, 16, 32, 64, 128),
 				 regress_ranges=((-1, 64), (64, 128), (128, 256), (256, 512),
-								 (512, INF)),
+								 (512, np.inf)),
 				 focal_alpha=0.25,
 				 focal_gamma=2,
 				 iou_eps=1e-6,
@@ -434,7 +434,7 @@ class Processor():
 			results = {}
 			video_start_id = 0
 			for idx in range(length):
-				sample = val_loader.sampels[idx]
+				sample = val_loader.samples[idx]
 				val_data = sample[0]
 				val_sent = sample[2]
 				gt_box = sample[3]
@@ -442,31 +442,35 @@ class Processor():
 				sentence = sample[5]
 				window_start = sample[6]
 
-				val_data = torch.autograd.Variable(val_data.unsqueeze(0).type(FTensor))
-				val_sent = torch.autograd.Variable(torch.from_numpy(val_sent).unsqueeze(0).type(LTensor))
+				val_data = torch.autograd.Variable(val_data.unsqueeze(0))
+				val_sent = torch.autograd.Variable(torch.from_numpy(val_sent).unsqueeze(0))
 
-				output = self.model(torch.from_numpy(val_data), torch.from_numpy(val_sent))
-				output_np = output.detach().numpy()[0][0]
+				output = self.model(val_data, val_sent)
+				output_np = output.detach().cpu().numpy()[0][0]
 
 				# 开始预测
 				#cls_score(list): `(5, bs, 1, seq_i)`
 				#bbox_pred(list): `(5, bs, 2, seq_i)`
 				#centerness(list): `(5, bs, 1, seq_i)`
+				# start = float(visual_clip_name.split("_")[1])
+				# end = float(visual_clip_name.split("_")[2].split("_")[0])
 
-				reg_clip_length = (end - start) * (10 ** output_np[2])
-				reg_mid_point = (start + end) / 2.0 + output_np[1]  # * movie_length
+				reg_clip_length = (10 ** output_np[2])
+				reg_mid_point = output_np[1]  # * movie_length
 
-				reg_end = end + output_np[2]
-				reg_start = start + output_np[1]
+				reg_end = output_np[2]
+				reg_start = output_np[1]
 
-				cls_score = np.expand_dims(np.expand_dims(np.expand_dims(output_np[0], axis=0), axis=2), axis=3)
-				bbox_pred = np.expand_dims(np.expand_dims(np.expand_dims([reg_star, reg_end], axis=0), axis=2), axis=3)
-				centerness = np.expand_dims(np.expand_dims(np.expand_dims(reg_mid_point, axis=0), axis=2), axis=3)
+				cls_score =
+                                torch.from_numpy(np.expand_dims(np.expand_dims(np.expand_dims(output_np[0],
+                                    axis=0), axis=2), axis=3)))
+				bbox_pred = list(np.expand_dims(np.expand_dims(np.expand_dims([reg_start, reg_end], axis=0), axis=2), axis=3))
+				centerness = list(np.expand_dims(np.expand_dims(np.expand_dims(reg_mid_point, axis=0), axis=2), axis=3))
 
 
 				video_num = 1
 				video_start_id = 0
-				criterion = FCOSLoss(2)
+				criterion = FCOSLoss(3)
 				result_list, video_start_id = get_bboxes(mfconfig,
 														 criterion,
 														 cls_score,
@@ -532,87 +536,6 @@ class Processor():
 		100 * np.mean(rank1_list), 100 * np.mean(rank5_list), 100 * np.mean(rank10_list)))
 
 		return (100 * float(rank1_5) / num1 + 100 * float(rank1_7) / num1)
-
-	def evalAnet(self, step, test_output_path):
-		self.model.eval()
-		IoU_thresh = [0.1, 0.2, 0.3, 0.4, 0.5]
-		all_correct_num_10 = [0.0] * 5
-		all_correct_num_5 = [0.0] * 5
-		all_correct_num_1 = [0.0] * 5
-		all_retrievd = 0.0
-
-		bs = len(self.testDataset.samples)
-
-		for s in range(len(self.testDataset.samples)):
-			#movie_length = movie_length_info[movie_name.split(".")[0]]
-			movie_name = self.testDataset.samples[s][4]
-			self.print_log("Test movie: " + movie_name + "....loading movie data")
-
-			movie_clip_featmaps = self.testDataset.samples[s][0]
-			movie_clip_sentences = self.testDataset.samples[s][2]
-			start = self.testDataset.samples[s][2]
-			end = self.testDataset.samples[s][2]
-			#movie_clip_featmaps, movie_clip_sentences = self.testDataset.load_movie_slidingclip(movie_name, 16)
-			self.print_log("sentences: " + str(len(movie_clip_sentences)))
-			self.print_log("clips: " + str(len(movie_clip_featmaps)))
-
-
-			sentence_image_mat = np.zeros([len(movie_clip_sentences), len(movie_clip_featmaps)])
-			sentence_image_reg_mat = np.zeros([len(movie_clip_sentences), len(movie_clip_featmaps), 2])
-
-
-			for k in range(1):
-				for t in range(1):     #预测除了t个
-					featmap = movie_clip_featmaps[t][1]
-					visual_clip_name = movie_clip_featmaps[t][0]
-					start = float(visual_clip_name.split("_")[1])
-					end = float(visual_clip_name.split("_")[2].split("_")[0])
-					featmap = np.reshape(featmap, [1, featmap.shape[0]])
-
-					output = self.model(torch.from_numpy(featmap), torch.from_numpy(sent_raw))
-					output_np = output.detach().numpy()[0][0]
-
-					#开始预测
-					sentence_image_mat[k, t] = output_np[0]
-					reg_clip_length = (end - start) * (10 ** output_np[2])
-					reg_mid_point = (start + end) / 2.0 + output_np[1] # * movie_length
-					reg_end = end + output_np[2]
-					reg_start = start + output_np[1]
-
-					sentence_image_reg_mat[k, t, 0] = reg_start
-					sentence_image_reg_mat[k, t, 1] = reg_end
-
-			iclips = [b[0] for b in movie_clip_featmaps] #未使用
-			sclips = [b[0] for b in movie_clip_sentences]
-
-			# calculate Recall@m, IoU=n
-			for k in range(len(IoU_thresh)):
-				IoU = IoU_thresh[k]
-				correct_num_10 = compute_IoU_recall_top_n_forreg(10, IoU, sentence_image_mat, sentence_image_reg_mat,
-																 sclips, iclips)
-				correct_num_5 = compute_IoU_recall_top_n_forreg(5, IoU, sentence_image_mat, sentence_image_reg_mat,
-																sclips, iclips)
-				correct_num_1 = compute_IoU_recall_top_n_forreg(1, IoU, sentence_image_mat, sentence_image_reg_mat,
-																sclips, iclips)
-				self.print_log(
-					movie_name + " IoU=" + str(IoU) + ", R@10: " + str(correct_num_10 / len(sclips)) + "; IoU=" + str(
-						IoU) + ", R@5: " + str(correct_num_5 / len(sclips)) + "; IoU=" + str(IoU) + ", R@1: " + str(
-						correct_num_1 / len(sclips)))
-				all_correct_num_10[k] += correct_num_10
-				all_correct_num_5[k] += correct_num_5
-				all_correct_num_1[k] += correct_num_1
-			all_retrievd += len(sclips)
-
-		for k in range(len(IoU_thresh)):
-			self.print_log(
-				"IoU=" + str(IoU_thresh[k]) + ", R@10: " + str(all_correct_num_10[k] / all_retrievd) + "; IoU=" + str(
-					IoU_thresh[k]) + ", R@5: " + str(all_correct_num_5[k] / all_retrievd) + "; IoU=" + str(
-					IoU_thresh[k]) + ", R@1: " + str(all_correct_num_1[k] / all_retrievd))
-			with open(test_output_path, "w") as f:
-				f.write("Step " + str(iter_step) + ": IoU=" + str(IoU_thresh[k]) + ", R@10: " + str(
-					all_correct_num_10[k] / all_retrievd) + "; IoU=" + str(IoU_thresh[k]) + ", R@5: " + str(
-					all_correct_num_5[k] / all_retrievd) + "; IoU=" + str(IoU_thresh[k]) + ", R@1: " + str(
-					all_correct_num_1[k] / all_retrievd) + "\n")
 
 
 	def eval(self, movie_length_info, step, test_output_path):
