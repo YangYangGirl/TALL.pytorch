@@ -211,7 +211,7 @@ class AnetDataset(torch.utils.data.Dataset):
         # read groundtruth sentence-clip pairs
         for k in range(len(self.clip_sentence_pairs)):
             clip_name = self.clip_sentence_pairs[k][0]
-            movie_name = clip_name.split("_")[0]
+            movie_name = clip_name.split("_")[0]   #such as, s32-d55.avi
             if not movie_name in movie_names_set:
                 movie_names_set.add(movie_name)
                 self.movie_clip_names[movie_name] = []
@@ -316,7 +316,7 @@ class AnetDataset(torch.utils.data.Dataset):
 
     def _process_video(self):  # 6*feature
         count = 0
-        for video_name in list(self.data.keys())[:100]:
+        for video_name in list(self.data.keys())[:10000]:
             count += 1
             if count > 100 and self.mode == 'Val':
                 break
@@ -394,7 +394,7 @@ class AnetDataset(torch.utils.data.Dataset):
                         # elif tmp_ioa <= 0:
                         #     tmp_gt_bbox = [0., 0.]
                         #     tmp_ioa = 0.
-
+                        #sent 为word的index集合，sentences为实际单词
                         tmp_results = [tmp_data, np.array(tmp_gt_bbox),
                                        np.array(sent), np.array([round_gt_start, round_gt_end])]
 
@@ -712,7 +712,7 @@ class TestingAnetDataset(object):
                             # print(xmin, tmp_gt_bbox, round_gt_start, round_gt_end)
                             tmp_results.append(video_name)
                             tmp_results.append(sentences[idx])
-                            tmp_results.append(xmin)
+                            tmp_results.append(xmin)  #window_start
                             tmp_results.append(ratio)
                         self.samples.append(tmp_results)
 
@@ -831,32 +831,32 @@ class TestingDataSet(object):
             clip_name = l[0]
             sent_vecs = l[1]
             for sent_vec in sent_vecs:
-                self.clip_sentence_pairs.append((clip_name, sent_vec))
+                self.clip_sentence_pairs.append((clip_name, sent_vec)) #such as(s32-d55.avi_169_324 ,(13, 4800))
         print(str(len(self.clip_sentence_pairs))+" pairs are readed")
         movie_names_set = set()
         self.movie_clip_names = {}
         for k in range(len(self.clip_sentence_pairs)):
             clip_name = self.clip_sentence_pairs[k][0]
-            movie_name = clip_name.split("_")[0]
+            movie_name = clip_name.split("_")[0]  #s13-d21.avi_252_452
             if not movie_name in movie_names_set:
                 movie_names_set.add(movie_name)
                 self.movie_clip_names[movie_name] = []
-            self.movie_clip_names[movie_name].append(k)
+            self.movie_clip_names[movie_name].append(k)    #存入该视频对应的所有clip的索引
         self.movie_names = list(movie_names_set)
         
         self.clip_num_per_movie_max = 0
-        for movie_name in self.movie_clip_names:
+        for movie_name in self.movie_clip_names:    #限制一个视频被clip的个数
             if len(self.movie_clip_names[movie_name])>self.clip_num_per_movie_max: self.clip_num_per_movie_max = len(self.movie_clip_names[movie_name])
         print("Max number of clips in a movie is "+str(self.clip_num_per_movie_max))
         
-        self.sliding_clip_path = img_dir
+        self.sliding_clip_path = img_dir # "./exp_data/Interval128_256_overlap0.8_c3d_fc6/"
         sliding_clips_tmp = os.listdir(self.sliding_clip_path)
         self.sliding_clip_names = []
-        for clip_name in sliding_clips_tmp:
+        for clip_name in sliding_clips_tmp:     #such as,s37-d46.avi_9997_10509.npy
             if clip_name.split(".")[2]=="npy":
-                movie_name = clip_name.split("_")[0]
-                if movie_name in self.movie_clip_names:
-                    self.sliding_clip_names.append(clip_name.split(".")[0]+"."+clip_name.split(".")[1])
+                movie_name = clip_name.split("_")[0] #such as,s37-d46.avi
+                if movie_name in self.movie_clip_names:    #如果这个sliding视频有clip过的词向量
+                    self.sliding_clip_names.append(clip_name.split(".")[0]+"."+clip_name.split(".")[1])# such as,s37-d46.avi_9997_10509
         self.num_samples = len(self.clip_sentence_pairs)
         print("sliding clips number: "+str(len(self.sliding_clip_names)))
         assert self.batch_size <= self.num_samples
@@ -943,7 +943,7 @@ class TestingDataSet(object):
         movie_clip_featmap = []
         clip_set = set()
         for k in range(len(self.clip_sentence_pairs)):
-            if movie_name in self.clip_sentence_pairs[k][0]:
+            if movie_name in self.clip_sentence_pairs[k][0]: #such as, s32-d55 in (s32-d55.avi_169_324 ,(13, 4800))[0]
                 movie_clip_sentences.append((self.clip_sentence_pairs[k][0], self.clip_sentence_pairs[k][1][:self.semantic_size]))
         for k in range(len(self.sliding_clip_names)):
             if movie_name in self.sliding_clip_names[k]:

@@ -154,7 +154,9 @@ def multiclass_nms(multi_bboxes,
         tuple: (bboxes, labels), tensors of shape (k, 5) and (k, 1). Labels
             are 0-based.
     """
+    print(multi_scores.shape)
     num_classes = multi_scores.shape[1]
+
     bboxes, labels = [], []
 
     for i in range(1, num_classes):
@@ -210,7 +212,8 @@ def get_bboxes_single(config,
         for cls_score, bbox_pred, centerness, points in zip(
                 cls_scores, bbox_preds, centernesses, mlvl_points):
             assert cls_score.size()[-1] == bbox_pred.size()[-1]
-
+            print(cls_score.size)
+            print(cls_score.shape)
 
             scores = cls_score.permute(1, 0).reshape(
                 -1, criterion.cls_out_channels).sigmoid()

@@ -18,7 +18,7 @@ from utils_FCOS import cal_iou, get_bboxes
 from config import CONFIG
 cfg = CONFIG()
 
-from config_FCOS import Config as mfconfig
+from config_FCOS import Config
 
 class FCOSLoss(nn.Module):
 
@@ -400,7 +400,7 @@ class Processor():
 		losses = []
 		for epoch in range(cfg.max_epoch):
 			for step, data_torch in enumerate(self.data_loader['train']):
-				self.evalAnet(step + 1, cfg.test_output_path)
+				#self.evalAnet(step + 1, cfg.test_output_path)
 				self.model.train()
 				self.record_time()
 				# forward
@@ -461,16 +461,19 @@ class Processor():
 				reg_end = output_np[2]
 				reg_start = output_np[1]
 
-				cls_score =
-                                torch.from_numpy(np.expand_dims(np.expand_dims(np.expand_dims(output_np[0],
-                                    axis=0), axis=2), axis=3)))
-				bbox_pred = list(np.expand_dims(np.expand_dims(np.expand_dims([reg_start, reg_end], axis=0), axis=2), axis=3))
-				centerness = list(np.expand_dims(np.expand_dims(np.expand_dims(reg_mid_point, axis=0), axis=2), axis=3))
-
-
+				c = torch.from_numpy(np.expand_dims(np.expand_dims(np.numarray(1, 2), axis=0), axis=2))
+				cls_score = []
+				cls_score.append(c)
+				b = torch.from_numpy(np.expand_dims(np.expand_dims([reg_start, reg_end], axis=0), axis=2))
+				bbox_pred = []
+				bbox_pred.append((b))
+				c = torch.from_numpy(np.expand_dims(np.expand_dims(np.numarray(1,2), axis=0), axis=2))
+				centerness = []
+				centerness.append(c)
 				video_num = 1
 				video_start_id = 0
 				criterion = FCOSLoss(3)
+				mfconfig = Config()
 				result_list, video_start_id = get_bboxes(mfconfig,
 														 criterion,
 														 cls_score,
