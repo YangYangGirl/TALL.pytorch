@@ -5,7 +5,7 @@ class CONFIG(object):
         super(CONFIG, self).__init__()
 
         self.phase = 'train'
-        self.dataset = 'Anet' #'TACoS'
+        self.dataset = 'Charades'#'Anet' #'TACoS'
         self.seed = 2019
         self.device = [0,1]
 

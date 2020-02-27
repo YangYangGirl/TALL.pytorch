@@ -332,6 +332,16 @@ class Processor():
 								  cfg.context_num,
                  				  cfg.context_size,
 								)
+			elif cfg.dataset == 'Charades':
+				current_dataset = CharadesDataset(cfg.train_feature_dir,
+											  cfg.train_csv_path,
+											  cfg.visual_dim,
+											  cfg.sentence_embed_dim,
+											  cfg.IoU,
+											  cfg.nIoU,
+											  cfg.context_num,
+											  cfg.context_size,
+											  )
 			else:
 				current_dataset = TrainDataset(cfg.train_feature_dir,
 											   cfg.train_csv_path,
@@ -349,6 +359,8 @@ class Processor():
 				num_workers=cfg.num_worker)
 		if cfg.dataset == 'Anet':
 			self.testDataset = TestingAnetDataset(cfg.test_feature_dir, cfg.test_csv_path, cfg.test_batch_size)
+		elif cfg.dataset == 'Charades':
+			self.testDataset = TestingCharadesDataset(cfg.test_feature_dir, cfg.test_csv_path, cfg.test_batch_size)
 		else:
 			self.testDataset = TestingDataSet(cfg.test_feature_dir, cfg.test_csv_path, cfg.test_batch_size)
 
@@ -400,7 +412,7 @@ class Processor():
 		losses = []
 		for epoch in range(cfg.max_epoch):
 			for step, data_torch in enumerate(self.data_loader['train']):
-				#self.evalAnet(step + 1, cfg.test_output_path)
+				self.evalAnet(step + 1, cfg.test_output_path)
 				self.model.train()
 				self.record_time()
 				# forward
@@ -424,6 +436,8 @@ class Processor():
 					self.print_log('Testing:')
 					if cfg.dataset == 'Anet':
 						self.evalAnet(step + 1, cfg.test_output_path)
+					elif cfg.dataset == 'Charades':
+						self.evalCharades(step + 1, cfg.test_output_path)
 					else:
 						movie_length_info = pickle.load(open(cfg.movie_length_info_path, 'rb'), encoding='iso-8859-1')
 						self.eval(movie_length_info, step + 1, cfg.test_output_path)

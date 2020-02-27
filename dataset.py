@@ -20,6 +20,7 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 import numpy as np
+import threading
 
 class WordEmbedding(nn.Module):
     """Word Embedding
@@ -141,7 +142,16 @@ def calc_nIoL(base, sliding_clip):
 
 class CharadesDataset(torch.utils.data.Dataset):
 
-    def __init__(self):
+    def __init__(self,
+                 sliding_dir,
+                 it_path,
+                 visual_dim,
+                 sentence_embed_dim,
+                 IoU=0.5,
+                 nIoU=0.15,
+                 context_num=1,
+                 context_size=128,
+                 ):
         f = open('../data/vocab.json')
         self.vocab = json.loads(f.read())[0]
         self.feature_path = "../data/Charades_v1_features_rgb"
@@ -153,15 +163,15 @@ class CharadesDataset(torch.utils.data.Dataset):
         self.num_classes = 2  # action categroies + BG for THUMOS14 is 21
         self.mode = 'Train'
         self.sampels = []
-        if mode == 'Train':
+        if self.mode == 'Train':
             self.clip_gt_path = "../data/charades_sta_train.txt"
-        elif mode == 'Val':
+        elif self.mode == 'Val':
             self.clip_gt_path = "../data/charades_sta_train.txt"
             self.window_step =  64
-        elif mode == 'Valtrain':
+        elif self.mode == 'Valtrain':
             self.clip_gt_path = "../data/charades_sta_train.txt"
             self.window_step = 64
-        elif mode == 'Test':
+        elif self.mode == 'Test':
             self.clip_gt_path = "../data/charades_sta_test.txt"
             self.window_step = 64
         # multi thread
@@ -171,7 +181,7 @@ class CharadesDataset(torch.utils.data.Dataset):
         self.item_done = 0
         self._preparedata()
         print(
-            'The number of {} dataset samples is {}'.format(mode, len(self.sampels)))
+            'The number of {} dataset samples is {}'.format(self.mode, len(self.sampels)))
 
     def _preparedata(self):
 
@@ -359,10 +369,249 @@ class CharadesDataset(torch.utils.data.Dataset):
                 self.sampels.append(tmp_results)
 
     def __getitem__(self, index):
-        return self.sampels[index]
+
+        s = self.samples[index]
+        sent_raw = self.samples[index][2]
+
+        data_torch = {
+            'vis': self.samples[index][0],  # .reshape(bs, -1),
+            'sent': sent_raw,
+            'offset': self.samples[index][1],
+        }
+        return data_torch
 
     def __len__(self):
         return len(self.sampels)
+
+
+class TestingCharadesDataset(object):
+    def __init__(self, img_dir, csv_path, batch_size):
+        def __init__(self):
+            f = open('../data/vocab.json')
+            self.vocab = json.loads(f.read())[0]
+            self.feature_path = "../data/Charades_v1_features_rgb"
+            self.unit_size = 1
+            self.feature_dim = 4096
+            self.pkl_path = "../data/Charades_feature_rgb_pkl"
+            self.window_size = 192
+            self.window_step = 64
+            self.num_classes = 2  # action categroies + BG for THUMOS14 is 21
+            self.mode = 'Train'
+            self.sampels = []
+            if self.mode == 'Train':
+                self.clip_gt_path = "../data/charades_sta_train.txt"
+            elif self.mode == 'Val':
+                self.clip_gt_path = "../data/charades_sta_train.txt"
+                self.window_step = 64
+            elif self.mode == 'Valtrain':
+                self.clip_gt_path = "../data/charades_sta_train.txt"
+                self.window_step = 64
+            elif self.mode == 'Test':
+                self.clip_gt_path = "../data/charades_sta_test.txt"
+                self.window_step = 64
+            # multi thread
+            self.exit_flag = False
+            self.queue_lock = threading.Lock()
+            self.queue = queue.Queue()
+            self.item_done = 0
+            self.movie_clip_featmaps_map = {}
+            self.movie_clip_sentences_map = {}
+            self.movie_length_info = {}
+            self.movie_names_set = set()
+            self._preparedata()
+            print(
+                'The number of {} dataset samples is {}'.format(self.mode, len(self.sampels)))
+
+    def _preparedata(self):
+
+        print('wait...prepare data')
+        window_size = self.window_size
+        stride = self.window_step
+        id = 0
+
+        # multithread
+        for _ in range(8):
+            thread = threading.Thread(target=self.process_thread, args=[self])
+            thread.start()
+        last_name = ''
+        with open(self.clip_gt_path) as f:
+            self.queue_lock.acquire()
+            l_list = []
+            for l in f:
+                video_name = l.rstrip().split(" ")[0]
+                if video_name == last_name or last_name == '':
+                    l_list.append(l)
+                else:
+                    if len(l_list):
+                        self.queue.put(l_list)
+                    l_list = [l]
+                last_name = video_name
+                id = id + 1
+            if len(l_list):
+                self.queue.put(l_list)
+            self.queue_lock.release()
+
+        while not self.queue.empty():
+            last = self.item_done
+        #            time.sleep(10)
+        # if self.item_done % 100 == 0:
+        #     print(self.item_done, (self.item_done - last) / 10)
+        # if self.item_done > 10 and self.mode=='Val':
+        #    break
+        # if self.item_done > 100:
+        #    break
+
+        self.exit_flag = True
+
+
+    def _get_feature(self, video_name, start, end):
+        feat_dir = self.feature_path
+        swin_step = 4
+        all_feat = np.zeros([0, self.feature_dim], dtype=np.float32)
+        current_pos = start * 4
+        end = (end - 1) * 4
+        feat_path = os.path.join(feat_dir, video_name)
+
+        pkl_path = self.pkl_path
+        # if os.path.exists(pkl_path) == False:
+        #     os.mkdir(pkl_path)
+        pickle_path = os.path.join(pkl_path, video_name + '_f.pkl')
+
+        if os.path.exists(pickle_path):
+            p_f = open(pickle_path, 'rb')
+            all_feat = pickle.load(p_f)
+            p_f.close()
+            return all_feat
+        while current_pos < end:
+            clip_name = video_name + '-' + str(current_pos + 1).zfill(6) + '.txt'
+            path = os.path.join(feat_path, clip_name)
+            if os.path.exists(path):
+                feat = np.loadtxt(path)
+            else:
+                # print(video_name,current_pos + 1)
+                feat = np.zeros(self.feature_dim, dtype=np.float32)
+            all_feat = np.vstack((all_feat, feat))
+            current_pos += swin_step
+
+        # print(all_feat.shape)
+        # time.sleep(100)
+
+        p_f = open(pickle_path, 'wb')
+        pickle.dump(all_feat, p_f)
+        p_f.close()
+        return all_feat  # window_size*4096
+
+    def process_thread(sel, self):
+        while not self.exit_flag:
+            self.queue_lock.acquire()
+            if not self.queue.empty():
+                l = self.queue.get()
+                self.item_done += 1
+                self.queue_lock.release()
+                self.process_video(l)
+            else:
+                self.queue_lock.release()
+
+    def process_video(self, l_list):
+        window_size, stride = self.window_size, self.window_step
+        l_length = len(l_list)
+        l = l_list[0]
+        video_name = l.rstrip().split(" ")[0]
+        clip_list = os.listdir(self.feature_path + '/' + video_name)
+        length = len(clip_list)  # temporal length]
+        video_feature_total = self._get_feature(video_name, 0, length)
+        video_feature_total = torch.Tensor(video_feature_total)
+
+        for id in range(l_length):
+            l = l_list[id]
+            gt_start = float(l.rstrip().split(" ")[1])
+            gt_end = float(l.rstrip().split(" ")[2].split("##")[0])
+            sentence = l.rstrip().split("##")[1][:-1]
+
+            if gt_start > gt_end:
+                gt_start, gt_end = gt_end, gt_start
+
+            round_gt_start = round(gt_start * 24 / 4) * 4
+            round_gt_end = round(gt_end * 24 / 4) * 4
+            n_window = math.ceil((length + stride - window_size) / stride)
+            # print(n_window, length)
+            frameList = [1 + self.unit_size * i for i in range(length)]  # 1, 2, 3
+            windows_start = [i * stride for i in range(int(n_window))]
+
+            word_indexes = []
+            for word in sentence.split(' '):
+                idx = self.vocab.get(word)
+                if idx is not None:
+                    word_indexes.append(idx)
+                else:
+                    word_indexes.append(0)  # <UNK>
+            sent = np.array(word_indexes, dtype=np.long)
+            flag = 1
+            if length < window_size:
+                windows_start = [0]
+                frameList.extend([frameList[-1] + self.unit_size * (i + 1) for i in range(window_size - length)])
+
+            elif length - windows_start[-1] - window_size > 0:
+                flag = 0
+                windows_start.append(length - window_size)
+            xmin = [(i - 1) * 4 + 1 for i in frameList]
+            xmax = frameList[1:]
+            xmax.append(frameList[-1] + 1)
+            xmax = [(i - 1) * 4 + 1 for i in xmax]
+
+            for start in windows_start:
+                # tmp_data = _get_feature(self.feature_path, video_name, start, start+window_size)
+                window = min(window_size, video_feature_total.shape[0] - start)
+                pad_dim = window_size + start - video_feature_total.shape[0]
+                tmp_data = video_feature_total[start:start + window, :]  # [window_size, feature_dim]
+                if pad_dim > 0:
+                    pad = torch.zeros(pad_dim, self.feature_dim)
+                    tmp_data = torch.cat((tmp_data, pad), 0)
+                self.movie_clip_featmaps_map[video_name].append(
+                    [video_name + '%' + str(start) + '%' + str(start + window), tmp_data])
+                # if(tmp_data.shape[0] != 128):
+                #    print(video_name, sentence,start, start + window_size,video_feature_total.shape)
+                #    time.sleep(1000000)
+                tmp_anchor_xmins = xmin[start:start + window_size]
+                tmp_anchor_xmaxs = xmax[start:start + window_size]
+                # gt_box -iou;   label:0/1;    feat; query
+                tmp_ioa = ioa_with_anchors(round_gt_start, round_gt_end, tmp_anchor_xmins[0], tmp_anchor_xmaxs[-1])
+                if tmp_ioa > 0:
+                    # gt bbox info
+                    corrected_start = max(round_gt_start, tmp_anchor_xmins[0]) - tmp_anchor_xmins[0]
+                    corrected_end = min(round_gt_end, tmp_anchor_xmaxs[-1]) - tmp_anchor_xmins[0]
+
+                    corrected_start = max(corrected_start, 0.0)
+                    corrected_start = min(corrected_start, self.window_size * 4)
+                    corrected_end = max(corrected_end, 0.0)
+                    corrected_end = min(corrected_end, self.window_size * 4)
+
+                    tmp_gt_bbox = [int(float(corrected_start) / 4),
+                                   int(float(corrected_end) / 4)]
+                else:
+                    continue
+                label = 0
+                if (tmp_ioa > 0 and flag == 0 and tmp_anchor_xmins[0] == xmin[0]):
+                    label = 1
+                ###Todo add sample balance : label = 1 positive; label = 0 negative
+
+                #                        print(video_name, round_gt_start, round_gt_end, tmp_anchor_xmins[0], tmp_anchor_xmaxs[-1],tmp_gt_bbox, label,  tmp_data.shape, tmp_ioa)
+                # the overlap region is corrected
+                tmp_results = [tmp_data, np.array(tmp_gt_bbox), np.array(sent),
+                               np.array([round_gt_start, round_gt_end])]
+                if self.mode != 'Train':
+                    tmp_results.append(video_name)
+                    tmp_results.append(sentence)
+                    tmp_results.append(tmp_anchor_xmins[0])
+                    if video_name not in self.movie_length_info.keys():
+                        self.movie_length_info[video_name] = length
+                    self.movie_clip_sentences_map[video_name].append(
+                        [video_name + '%' + str(tmp_gt_bbox[0]) + '%' + str(tmp_gt_bbox[1]), sent])
+                # print(video_name, sentence, tmp_data.shape, tmp_ioa, [round_gt_start, round_gt_end],[tmp_anchor_xmins[0], tmp_anchor_xmaxs[-1]],tmp_gt_bbox)
+                # time.sleep(10)
+                self.sampels.append(tmp_results)
+                self.movie_names = list(self.movie_names_set)
+
 
 class AnetDataset(torch.utils.data.Dataset):
     def __init__(self,
