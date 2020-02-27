@@ -400,10 +400,12 @@ class Processor():
 		losses = []
 		for epoch in range(cfg.max_epoch):
 			for step, data_torch in enumerate(self.data_loader['train']):
-				#self.evalAnet(step + 1, cfg.test_output_path)
+				self.evalAnet(step + 1, cfg.test_output_path)
 				self.model.train()
 				self.record_time()
 				# forward
+
+				data_torch['vis'] = np.reshape(data_torch['vis'],  [1, -1])
 				output = self.model(data_torch['vis'].to("cuda"), data_torch['sent'].to("cuda"))
 				loss = self.loss(output.to("cuda"), data_torch['offset'].to("cuda"))
 
@@ -426,19 +428,101 @@ class Processor():
 						movie_length_info = pickle.load(open(cfg.movie_length_info_path, 'rb'), encoding='iso-8859-1')
 						self.eval(movie_length_info, step + 1, cfg.test_output_path)
 
-	def evalAnet(self, step, test_output_path):
+
+	def evalAnet(self, iter_step, test_output_path):
 		self.model.eval()
+		IoU_thresh = [0.1, 0.2, 0.3, 0.4, 0.5]
+		all_correct_num_10 = [0.0] * 5
+		all_correct_num_5 = [0.0] * 5
+		all_correct_num_1 = [0.0] * 5
+		all_retrievd = 0.0
+
+		for movie_name in self.testDataset.movie_names:
+			movie_length = self.testDataset.movie_length_info[movie_name]
+			self.print_log("Test movie: " + movie_name + "....loading movie data")
+			movie_clip_featmaps = self.testDataset.movie_clip_featmaps_map[movie_name]
+			movie_clip_sentences = self.testDataset.movie_clip_sentences_map[movie_name]
+			self.print_log("sentences: " + str(len(movie_clip_sentences)))
+			self.print_log("clips: " + str(len(movie_clip_featmaps)))
+			sentence_image_mat = np.zeros([len(movie_clip_sentences), len(movie_clip_featmaps)])
+			sentence_image_reg_mat = np.zeros([len(movie_clip_sentences), len(movie_clip_featmaps), 2])
+			for k in range(len(movie_clip_sentences)):
+				sent_vec = movie_clip_sentences[k][1]
+				sent_vec = np.reshape(sent_vec, [1, sent_vec.shape[0]])
+				for t in range(len(movie_clip_featmaps)):
+					featmap = movie_clip_featmaps[t][1]
+					visual_clip_name = movie_clip_featmaps[t][0]
+					#print(visual_clip_name)
+					start = float(visual_clip_name.split("%")[1])
+					end = float(visual_clip_name.split("%")[2])
+
+					featmap = np.reshape(featmap, [1, -1])
+					#print("featmap.size", featmap.size())
+
+					output = self.model(featmap, torch.from_numpy(sent_vec))
+					output_np = output.detach().cpu().numpy()[0][0]
+
+					sentence_image_mat[k, t] = output_np[0]
+					reg_clip_length = (end - start) * (10 ** output_np[2])
+					reg_mid_point = (start + end) / 2.0 + movie_length * output_np[1]
+					reg_end = end + output_np[2]
+					reg_start = start + output_np[1]
+
+					sentence_image_reg_mat[k, t, 0] = reg_start
+					sentence_image_reg_mat[k, t, 1] = reg_end
+
+			iclips = [b[0] for b in movie_clip_featmaps]
+			sclips = [b[0] for b in movie_clip_sentences]
+
+			# calculate Recall@m, IoU=n
+			for k in range(len(IoU_thresh)):
+				IoU = IoU_thresh[k]
+				correct_num_10 = compute_IoU_recall_top_n_forreg(10, IoU, sentence_image_mat, sentence_image_reg_mat,
+																 sclips, iclips)
+				correct_num_5 = compute_IoU_recall_top_n_forreg(5, IoU, sentence_image_mat, sentence_image_reg_mat,
+																sclips, iclips)
+				correct_num_1 = compute_IoU_recall_top_n_forreg(1, IoU, sentence_image_mat, sentence_image_reg_mat,
+																sclips, iclips)
+				self.print_log(
+					movie_name + " IoU=" + str(IoU) + ", R@10: " + str(correct_num_10 / len(sclips)) + "; IoU=" + str(
+						IoU) + ", R@5: " + str(correct_num_5 / len(sclips)) + "; IoU=" + str(IoU) + ", R@1: " + str(
+						correct_num_1 / len(sclips)))
+				all_correct_num_10[k] += correct_num_10
+				all_correct_num_5[k] += correct_num_5
+				all_correct_num_1[k] += correct_num_1
+			all_retrievd += len(sclips)
+
+		for k in range(len(IoU_thresh)):
+			self.print_log(
+				"IoU=" + str(IoU_thresh[k]) + ", R@10: " + str(all_correct_num_10[k] / all_retrievd) + "; IoU=" + str(
+					IoU_thresh[k]) + ", R@5: " + str(all_correct_num_5[k] / all_retrievd) + "; IoU=" + str(
+					IoU_thresh[k]) + ", R@1: " + str(all_correct_num_1[k] / all_retrievd))
+			with open(test_output_path, "w") as f:
+				f.write("Step " + str(iter_step) + ": IoU=" + str(IoU_thresh[k]) + ", R@10: " + str(
+					all_correct_num_10[k] / all_retrievd) + "; IoU=" + str(IoU_thresh[k]) + ", R@5: " + str(
+					all_correct_num_5[k] / all_retrievd) + "; IoU=" + str(IoU_thresh[k]) + ", R@1: " + str(
+					all_correct_num_1[k] / all_retrievd) + "\n")
+
+	def evalAnet_(self, step, test_output_path):
+		self.model.eval()
+		sentence_image_reg_mat_dict = {}
+		sentence_image_mat_dict = {}
+		sclips_dict, iclips_dict = {}, {}
 		with torch.no_grad():
 			val_loader = self.testDataset
 			length = len(val_loader.samples)
+
 			results = {}
 			video_start_id = 0
 			for idx in range(length):
 				sample = val_loader.samples[idx]
 				val_data = sample[0]
+				start = sample[1][0]
+				end = sample[1][1]
 				val_sent = sample[2]
 				gt_box = sample[3]
 				video_name = sample[4]
+				movie_length = self.testDataset.movie_length_info[movie_name]
 				sentence = sample[5]
 				window_start = sample[6]
 
@@ -455,90 +539,32 @@ class Processor():
 				# start = float(visual_clip_name.split("_")[1])
 				# end = float(visual_clip_name.split("_")[2].split("_")[0])
 
-				reg_clip_length = (10 ** output_np[2])
-				reg_mid_point = output_np[1]  # * movie_length
+				sentence_image_mat[k, t] = output_np[0]
+				reg_clip_length = (end - start) * (10 ** output_np[2])
+				reg_mid_point =  (start + end) / 2.0 +  output_np[1] * movie_length
+				reg_end = end + output_np[2]
+				reg_start = start + output_np[1]
 
-				reg_end = output_np[2]
-				reg_start = output_np[1]
+				iclips = [b[0] for b in movie_clip_featmaps]
+				sclips = [b[0] for b in movie_clip_sentences]
 
-				c = torch.from_numpy(np.expand_dims(np.expand_dims(np.numarray(1, 2), axis=0), axis=2))
-				cls_score = []
-				cls_score.append(c)
-				b = torch.from_numpy(np.expand_dims(np.expand_dims([reg_start, reg_end], axis=0), axis=2))
-				bbox_pred = []
-				bbox_pred.append((b))
-				c = torch.from_numpy(np.expand_dims(np.expand_dims(np.numarray(1,2), axis=0), axis=2))
-				centerness = []
-				centerness.append(c)
-				video_num = 1
-				video_start_id = 0
-				criterion = FCOSLoss(3)
-				mfconfig = Config()
-				result_list, video_start_id = get_bboxes(mfconfig,
-														 criterion,
-														 cls_score,
-														 bbox_pred,
-														 centerness,
-														 video_num,
-														 video_start_id)
-				result_list = torch.cat(result_list)
-				mask = (result_list[:, 0] == 1)
-				a_scores = result_list[mask][:, 2].cpu().detach().numpy()
-				a_min = result_list[mask][:, 3].cpu().detach().numpy()
-				a_max = result_list[mask][:, 4].cpu().detach().numpy()
-
-				corrected_min = np.maximum(a_min, 0.) + window_start
-				corrected_max = np.minimum(a_max, config.window_size) + window_start
-
-				if video_name not in results.keys():
-					results[video_name] = {}
-				if sentence not in results[video_name].keys():
-					results[video_name][sentence] = [np.zeros((0,)), np.zeros((0,)), np.zeros((0,)), gt_box]
-
-				results[video_name][sentence] = [np.hstack([results[video_name][sentence][0], corrected_min]),
-												 np.hstack([results[video_name][sentence][1], corrected_max]),
-												 np.hstack([results[video_name][sentence][2], a_scores]),
-												 results[video_name][sentence][3]]
-
-		rank1_list = []
-		rank5_list = []
-		rank10_list = []
-		rank1_5 = 0
-		rank1_7 = 0
-		rank5_5 = 0
-		rank5_7 = 0
-		num1 = 0
-		num5 = 0
-		for video_name in results.keys():
-			for sentence in results[video_name].keys():
-				corrected_min = results[video_name][sentence][0]
-				corrected_max = results[video_name][sentence][1]
-				a_scores = results[video_name][sentence][2]
-				gt_box = results[video_name][sentence][3]
-				# print(video_name + ': ' + sentence + '  start: ' + str(gt_box[0]) + ' --   end: ' + str(gt_box[1]))
-				iou = cal_iou(config, corrected_min, corrected_max, a_scores, gt_box)
-				if len(iou) == 0:
-					continue
-				rank1 = iou[0]
-				rank1_5 += int(rank1 >= 0.5)
-				rank1_7 += int(rank1 >= 0.7)
-				rank1_list.append(rank1)
-				num1 += 1
-				rank5 = iou[:5]
-				rank5_5 += int(max(rank5) >= 0.5)
-				rank5_7 += int(max(rank5) >= 0.7)
-				rank5_list.append(max(rank5))
-				num5 += 1
-				rank10 = iou[:10]
-				rank10_list.append(max(rank10))
-
-		print("rank@1-0.5: %.4f\trank@1-0.7: %.4f\trank@5-0.5: %.4f\trank@5-0.7: %.4f\n" % (
-		100 * float(rank1_5) / num1, 100 * float(rank1_7) / num1, 100 * float(rank5_5) / num5,
-		100 * float(rank5_7) / num5))
-		print("rank1: %.4f\trank5: %.4f\trank10: %.4f\n" % (
-		100 * np.mean(rank1_list), 100 * np.mean(rank5_list), 100 * np.mean(rank10_list)))
-
-		return (100 * float(rank1_5) / num1 + 100 * float(rank1_7) / num1)
+				# calculate Recall@m, IoU=n
+				for k in range(len(IoU_thresh)):
+					IoU = IoU_thresh[k]
+					correct_num_10 = compute_IoU_recall_top_n_forreg(10, IoU, sentence_image_mat,
+																	 sentence_image_reg_mat, sclips, iclips)
+					correct_num_5 = compute_IoU_recall_top_n_forreg(5, IoU, sentence_image_mat, sentence_image_reg_mat,
+																	sclips, iclips)
+					correct_num_1 = compute_IoU_recall_top_n_forreg(1, IoU, sentence_image_mat, sentence_image_reg_mat,
+																	sclips, iclips)
+					self.print_log(movie_name + " IoU=" + str(IoU) + ", R@10: " + str(
+						correct_num_10 / len(sclips)) + "; IoU=" + str(IoU) + ", R@5: " + str(
+						correct_num_5 / len(sclips)) + "; IoU=" + str(IoU) + ", R@1: " + str(
+						correct_num_1 / len(sclips)))
+					all_correct_num_10[k] += correct_num_10
+					all_correct_num_5[k] += correct_num_5
+					all_correct_num_1[k] += correct_num_1
+				all_retrievd += len(sclips)
 
 
 	def eval(self, movie_length_info, step, test_output_path):
@@ -580,7 +606,7 @@ class Processor():
 					sentence_image_reg_mat[k, t, 1] = reg_end
 
 			iclips = [b[0] for b in movie_clip_featmaps]
-			sclips = [b[0] for b in movie_clip_sentences]
+			sclips = [b[0] for b in movie_clip_sentences]  #gt
 
 			# calculate Recall@m, IoU=n
 			for k in range(len(IoU_thresh)):

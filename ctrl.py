@@ -115,13 +115,12 @@ class CTRL(nn.Module):
     def forward(self, visual_feature, word_seqs):
         word_embs = self.word_emb(word_seqs)
         sentence_embed = self.sent_emb(word_embs)
+        
+        batch_size,_ = visual_feature.size()
 
-        batch_size, _, _ = visual_feature.size()
         visual_feature = visual_feature.reshape(batch_size, -1)
         visual_feature = visual_feature.to('cuda')
         transformed_clip = self.v2s_fc(visual_feature)
-
-
 
         transformed_sentence = self.s2s_fc(sentence_embed)
 
