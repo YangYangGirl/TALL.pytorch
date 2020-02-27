@@ -400,7 +400,7 @@ class Processor():
 		losses = []
 		for epoch in range(cfg.max_epoch):
 			for step, data_torch in enumerate(self.data_loader['train']):
-				self.evalAnet(step + 1, cfg.test_output_path)
+				#self.evalAnet(step + 1, cfg.test_output_path)
 				self.model.train()
 				self.record_time()
 				# forward

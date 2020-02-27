@@ -388,13 +388,13 @@ class AnetDataset(torch.utils.data.Dataset):
         f = open('../data/vocab.json')
         self.vocab = json.loads(f.read())[0]
         self.mode = "train"
-        self.window_size = 768#config.window_size
+        self.window_size = 20#768#config.window_size
 
         self.mode = 'Train'
         if self.mode == 'Train':
-            self.window_step = 128#config.window_step
+            self.window_step = 20#128#config.window_step
         else:
-            self.window_step = 256#config.inference_window_step
+            self.window_step = 20#256#config.inference_window_step
 
         self.feature_dim = 500#config.feature_dim
         self.samples = []
@@ -541,7 +541,7 @@ class AnetDataset(torch.utils.data.Dataset):
 
     def _process_video(self):  # 6*feature
         count = 0
-        for video_name in list(self.data.keys())[:10000]:
+        for video_name in list(self.data.keys()):
             count += 1
             if count > 100 and self.mode == 'Val':
                 break
@@ -780,13 +780,13 @@ class TestingAnetDataset(object):
         f = open('../data/vocab.json')
         self.vocab = json.loads(f.read())[0]
         self.mode = "train"
-        self.window_size = 768  # config.window_size
+        self.window_size = 20#768  # config.window_size
 
         self.mode = 'Test'
         if self.mode == 'Train':
-            self.window_step = 128  # config.window_step
+            self.window_step = 20#128  # config.window_step
         else:
-            self.window_step = 256  # config.inference_window_step
+            self.window_step = 20#256  # config.inference_window_step
 
         self.feature_dim = 500  # config.feature_dim
         self.samples = []
@@ -833,7 +833,7 @@ class TestingAnetDataset(object):
             data = torch.Tensor(self.features_h5py.root[video_name]['c3d_features'].read())
             times = d['timestamps']  #时间最大值
             length = data.shape[0]
-            ratio = float(length) / float(d['duration'])  # ~3.7,3.8  每秒对应的维度
+            ratio = float(length) / float(d['duration'])  # ~3.7,3.8  每秒对应的维度 124.23对于[463,500]
             length = int(d['duration'] * ratio)      #总维度
 
             pair = []
