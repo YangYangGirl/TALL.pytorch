@@ -637,13 +637,13 @@ class AnetDataset(torch.utils.data.Dataset):
         f = open('../data/vocab.json')
         self.vocab = json.loads(f.read())[0]
         self.mode = "train"
-        self.window_size = 20#768#config.window_size
+        self.window_size = 100#768#config.window_size
 
         self.mode = 'Train'
         if self.mode == 'Train':
-            self.window_step = 20#128#config.window_step
+            self.window_step = 100#128#config.window_step
         else:
-            self.window_step = 20#256#config.inference_window_step
+            self.window_step = 100#256#config.inference_window_step
 
         self.feature_dim = 500#config.feature_dim
         self.samples = []
@@ -1029,13 +1029,13 @@ class TestingAnetDataset(object):
         f = open('../data/vocab.json')
         self.vocab = json.loads(f.read())[0]
         self.mode = "train"
-        self.window_size = 20#768  # config.window_size
+        self.window_size = 100#768  # config.window_size
 
         self.mode = 'Test'
         if self.mode == 'Train':
-            self.window_step = 20#128  # config.window_step
+            self.window_step = 100#128  # config.window_step
         else:
-            self.window_step = 20#256  # config.inference_window_step
+            self.window_step = 100#256  # config.inference_window_step
 
         self.feature_dim = 500  # config.feature_dim
         self.samples = []

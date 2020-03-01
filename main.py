@@ -432,7 +432,7 @@ class Processor():
 				if (step+1) % 5 == 0 or step == 0:
 					self.print_log('Epoch %d, Step %d: loss = %.3f (%.3f sec)' % (epoch+1, step+1, losses[-1], duration))
 
-				if (step+1) % 2000 == -1:
+				if (step+1) % 2000 == 0:
 					self.print_log('Testing:')
 					if cfg.dataset == 'Anet':
 						self.evalAnet(step + 1, cfg.test_output_path)

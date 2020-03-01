@@ -5,9 +5,9 @@ class CONFIG(object):
         super(CONFIG, self).__init__()
 
         self.phase = 'train'
-        self.dataset = 'Charades'#'Anet' #'TACoS'
+        self.dataset = 'Anet'#'Charades'#'Anet' #'TACoS'
         self.seed = 2019
-        self.device = [0,1]
+        self.device = [0]
 
         self.max_epoch = 20
         self.batch_size = 1#56
@@ -31,7 +31,7 @@ class CONFIG(object):
         self.context_size = 128
 
         # Model setting
-        self.visual_dim = 20*500#0768 * 500 #4096 * 3
+        self.visual_dim = 100*500#0768 * 500 #4096 * 3
         self.sentence_embed_dim = 500#4800
         self.semantic_dim = 1024    # the size of visual and semantic comparison size
         self.middle_layer_dim = 1024
